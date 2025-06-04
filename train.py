@@ -26,9 +26,9 @@ def setup_seed(seed=random.randint(1, 10000)):
     print("Random Seed: ", seed)
     np.random.seed(seed)
     random.seed(seed)
-    torch.manual_seed(seed)#为CPU中设置种子，生成随机数
-    torch.cuda.manual_seed(seed)#为特定GPU设置种子，生成随机数
-    torch.cuda.manual_seed_all(seed)#为所有GPU设置种子，生成随机数
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 def build_models(opt):
@@ -52,7 +52,7 @@ def loss_fn(recon_x, x, mean, log_var):
     return BCE + KLD
 
 
-def generate_syn_feature(netG, classes, batch_size):
+def generate_syn_feature(args, data, netG, classes, batch_size):
     ## SYNTHESIS MULTI LABEL FEATURES
     nsample = classes.shape[0]
     if nsample % batch_size != 0:
@@ -72,7 +72,7 @@ def generate_syn_feature(netG, classes, batch_size):
     return syn_feature, syn_label
 
 
-def calc_gradient_penalty(netD, real_data, fake_data, input_att=None):
+def calc_gradient_penalty(args, netD, real_data, fake_data, input_att=None):
     alpha = torch.rand(args.batch_size, 1)
     alpha = alpha.expand(real_data.size())
     alpha = alpha.cuda()
@@ -101,7 +101,7 @@ def train_val(args, data, logger):
     netE, netG, netD = build_models(args)
 
     # init tensors
-    noise = torch.FloatTensor(args.batch_size, args.att_size)#（64，300）
+    noise = torch.FloatTensor(args.batch_size, args.att_size)
     one = torch.tensor(1, dtype=torch.float)
     mone = one * -1
 
@@ -129,7 +129,7 @@ def train_val(args, data, logger):
     epoch_times = []
     best_hash_time = 0
     for epoch in range(args.n_epochs):
-        lossD_meter = AverageMeter()#管理需要用到的变量
+        lossD_meter = AverageMeter()
         lossG_meter = AverageMeter()
         lossE_meter = AverageMeter()
         tic1 = time.time()
@@ -156,14 +156,14 @@ def train_val(args, data, logger):
                 # The 1 is probably not needed, but we all copied it from the DCGAN in the pytorch examples or the WGAN code.
                 criticD_real.backward(mone)
 
-                noise.normal_(0, 1)#用于生成假数据的噪声
+                noise.normal_(0, 1)
                 fake = netG(noise, att=late_fusion_train_batch_att, avg_att=early_fusion_train_batch_att)
                 criticD_fake = netD(fake.detach(), att=early_fusion_train_batch_att)
                 criticD_fake = args.gammaD * criticD_fake.mean()
                 criticD_fake.backward(one)
 
                 gradient_penalty = args.gammaD * calc_gradient_penalty(
-                    netD, batch_features, fake.data, early_fusion_train_batch_att
+                    args, netD, batch_features, fake.data, early_fusion_train_batch_att
                 )
                 gradient_penalty.backward()
                 Wasserstein_D = criticD_real - criticD_fake
@@ -216,7 +216,7 @@ def train_val(args, data, logger):
 
         tic2 = toc1
         netG.eval()
-        syn_feats, syn_labels = generate_syn_feature(netG, data.unseen_labels, args.fake_batch_size)
+        syn_feats, syn_labels = generate_syn_feature(args, data, netG, data.unseen_labels, args.fake_batch_size)
 
         # cat syn_features & labels with seen_feats & seen_labels
         all_feats = torch.cat((syn_feats, data.seen_features), 0)
@@ -288,13 +288,10 @@ def train_val(args, data, logger):
     return best_epoch_vgan, best_epoch_hash, best_map
 
 
-if __name__ == "__main__":
-    init("0")
-
-    torch.set_default_tensor_type("torch.FloatTensor")#用于设置默认的张量
+def main():
+    init()
 
     args = get_config()
-
     setup_seed(args.manual_seed)
 
     dummy_logger_id = None
@@ -327,13 +324,13 @@ if __name__ == "__main__":
             args.n_bits = hash_bit
 
             args.save_dir = f"./output/{seen_ds}_{unseen_ds}/{hash_bit}"
-            os.makedirs(args.save_dir, exist_ok=False)
+            os.makedirs(args.save_dir, exist_ok=True)
 
             if dummy_logger_id is not None:
                 logger.remove(dummy_logger_id)
-            dummy_logger_id = logger.add(f"{args.save_dir}/train.log", rotation="500 MB", level="INFO")
+            dummy_logger_id = logger.add(f"{args.save_dir}/train.log", mode="w", level="INFO")
 
-            with open(f"{args.save_dir}/config.json", "w+") as f:
+            with open(f"{args.save_dir}/config.json", "w") as f:
                 json.dump(vars(args), f, indent=4, sort_keys=True)
 
             best_epoch_vgan, best_epoch_hash, best_map = train_val(args, data, logger)
@@ -350,3 +347,7 @@ if __name__ == "__main__":
         print(
             f"[dataset:{x['dataset']}][bits:{x['hash_bit']}][best-epoch-vgan:{x['best_epoch_vgan']}][best-epoch-hash:{x['best_epoch_hash']}][best-mAP:{x['best_map']:.3f}]"
         )
+
+
+if __name__ == "__main__":
+    main()

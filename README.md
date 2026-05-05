@@ -1,1 +1,3 @@
-If the paper is accepted, the complete code will be uploaded soon.
+# GZSH
+
+Source code for TOMM 2026 paper "Generative Zero-Shot Hashing for Multi-Label Image Retrieval".
